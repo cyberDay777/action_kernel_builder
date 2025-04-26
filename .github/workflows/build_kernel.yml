@@ -90,7 +90,7 @@ jobs:
          }
          
          compile() {       
-            make -j$(nproc --all) \
+            make -j$(nproc --all) KCFLAGS="-Wno-error=strict-prototypes -Wno-error=implicit-int -Wno-error=unused-but-set-variable" \
             O=${{ env.OBJDIR }} \
             ARCH=arm64 \
             CC=clang \
