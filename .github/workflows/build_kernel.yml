@@ -34,8 +34,8 @@ jobs:
     permissions: write-all
     defaults:
       run:
-       shell: bash
-       working-directory: ${{ github.workspace }}
+        shell: bash
+        working-directory: ${{ github.workspace }}
 
     steps:
       - name: Set-up environment
@@ -45,21 +45,21 @@ jobs:
           sudo apt-get install -y build-essential bc gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libssl-dev libfl-dev
           sudo apt-get install -y curl git ftp lftp wget libarchive-tools ccache python-is-python3 python3
           sudo apt-get install -y zip unzip tar gzip bzip2 rar unrar cpio jq
-          
+
       - name: Cloning Kernel Source
         run: |
           git clone --single-branch --depth=1 --no-tags ${{ github.event.inputs.KERNEL_SOURCE }} -b ${{ github.event.inputs.KERNEL_BRANCH }} ${{ github.workspace }}/kernel
-          
+
       - name: Set-up Toolchain
         run: |
-         mkdir -p ${{ github.workspace }}/toolchain
-         if [[ "${{ github.event.inputs.TOOLCHAIN_URL }}" == *.tar.gz ]]; then
-             wget -O clang-toolchain.tar.gz "${{ github.event.inputs.TOOLCHAIN_URL }}"
-             tar -xzf clang-toolchain.tar.gz -C ${{ github.workspace }}/toolchain
-             rm -f clang-toolchain.tar.gz
-         else
-             git clone --single-branch --depth=1 --no-tags ${{ github.event.inputs.TOOLCHAIN_URL }} ${{ github.workspace }}/toolchain
-         fi
+          mkdir -p ${{ github.workspace }}/toolchain
+          if [[ "${{ github.event.inputs.TOOLCHAIN_URL }}" == *.tar.gz ]]; then
+              wget -O clang-toolchain.tar.gz "${{ github.event.inputs.TOOLCHAIN_URL }}"
+              tar -xzf clang-toolchain.tar.gz -C ${{ github.workspace }}/toolchain
+              rm -f clang-toolchain.tar.gz
+          else
+              git clone --single-branch --depth=1 --no-tags ${{ github.event.inputs.TOOLCHAIN_URL }} ${{ github.workspace }}/toolchain
+          fi
 
       - name: Set environment variables
         run: |
@@ -76,21 +76,21 @@ jobs:
             KERNEL_SOURCE_URL="${KERNEL_SOURCE_URL%.git}"
           fi
           echo "KERNEL_SOURCE_URL=${KERNEL_SOURCE_URL}" >> $GITHUB_ENV
-         
+
       - name: Start Compilation
         run: |
-         mkdir -p ${{ env.OUTPUT_DIR }}
-         cd ${{ github.workspace }}/kernel
-         
-         export PATH="${{ env.CLANG_DIR }}/bin:$PATH"
-         
-         make_defconfig() {
+          mkdir -p ${{ env.OUTPUT_DIR }}
+          cd ${{ github.workspace }}/kernel
+
+          export PATH="${{ env.CLANG_DIR }}/bin:$PATH"
+
+          make_defconfig() {
             start=$(date +"%s")
             make -s ARCH=arm64 O=${{ env.OBJDIR }} ${{ github.event.inputs.CONFIG_FILE }} -j$(nproc --all)
-         }
-         
-         compile() {       
-            make -j$(nproc --all) KCFLAGS="-Wno-error=strict-prototypes -Wno-error=implicit-int -Wno-error=unused-but-set-variable" \
+          }
+
+          compile() {
+            make -k -j$(nproc --all) KCFLAGS="-Wno-error=strict-prototypes -Wno-error=implicit-int -Wno-error=unused-but-set-variable" \
             O=${{ env.OBJDIR }} \
             ARCH=arm64 \
             CC=clang \
@@ -103,29 +103,35 @@ jobs:
             LD=ld.lld \
             NM=llvm-nm \
             LLVM=1 \
-            LLVM_IAS=1
-         }
+            LLVM_IAS=1 2>&1 | tee ${{ github.workspace }}/build.log
+          }
 
-         make_defconfig
-         compile
+          make_defconfig
+          compile
 
-         end=$(date +"%s")
-         diff=$((end - start))
-         echo -e "BUILD COMPLETED IN ${diff} SECONDS"
+          end=$(date +"%s")
+          diff=$((end - start))
+          echo -e "BUILD COMPLETED IN ${diff} SECONDS"
 
-        continue-on-error: false
-         
+        continue-on-error: true
+
+      - name: Upload Build Log
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-log
+          path: ${{ github.workspace }}/build.log
+
       - name: Checking for outputs
         run: |
-         cd "${{ env.OBJDIR }}"
-         
-         compiled_image="arch/arm64/boot/Image"
-         compiled_gz_image="arch/arm64/boot/Image.gz"
-         compiled_gz_dtb="arch/arm64/boot/Image.gz-dtb"
-         compiled_dtbo="arch/arm64/boot/dtbo.img"
-         qcom_dtb="arch/arm64/boot/dts/vendor/qcom"
-           
-         if [[ -f ${compiled_image} || -f ${compiled_gz_image} || -f ${compiled_gz_dtb} ]]; then
+          cd "${{ env.OBJDIR }}"
+
+          compiled_image="arch/arm64/boot/Image"
+          compiled_gz_image="arch/arm64/boot/Image.gz"
+          compiled_gz_dtb="arch/arm64/boot/Image.gz-dtb"
+          compiled_dtbo="arch/arm64/boot/dtbo.img"
+          qcom_dtb="arch/arm64/boot/dts/vendor/qcom"
+
+          if [[ -f ${compiled_image} || -f ${compiled_gz_image} || -f ${compiled_gz_dtb} ]]; then
               git clone -q ${{ github.event.inputs.ANYKERNEL }} "${{ env.ANYKERNEL }}"
 
               if [[ -f "${compiled_image}" ]]; then
@@ -138,12 +144,12 @@ jobs:
                   cp -f "${compiled_gz_dtb}" "${{ env.ANYKERNEL }}/Image.gz-dtb" || true
                   cp -f "${compiled_gz_dtb}" "${{ env.OUTPUT_DIR }}/Image.gz-dtb" || true
               fi
-              
+
               if [[ -f "${compiled_dtbo}" ]]; then
                   cp -f "${compiled_dtbo}" "${{ env.ANYKERNEL }}/dtbo.img" || true
                   cp -f "${compiled_dtbo}" "${{ env.OUTPUT_DIR }}/dtbo.img" || true
               fi
-              
+
               if ls ${qcom_dtb}/*.dtb 1> /dev/null 2>&1; then
                   cp -f ${qcom_dtb}/*.dtb "${{ env.OUTPUT_DIR }}" || true
               fi
@@ -153,14 +159,14 @@ jobs:
               mv -- "AnyKernel.zip" "${{ env.ZIP_NAME }}"
               mv -- "${{ env.ANYKERNEL }}/${{ env.ZIP_NAME }}" "${{ env.OUTPUT_DIR }}/${{ env.ZIP_NAME }}"
               rm -rf "${{ env.ANYKERNEL }}"
-         else
+          else
               echo "ERROR: Some output is missing!"
               exit 1
-         fi
-         
-         zip_file=$(find ${{ env.OUTPUT_DIR }} -name '${{ github.event.inputs.KERNEL_NAME }}*.zip' -print -quit)
-         echo "ZIP_NAME=$(basename "$zip_file" .zip)" >> $GITHUB_ENV
-         echo "RELEASE_DATE=$(date +'%B %-d, %Y %H:%M')" >> $GITHUB_ENV
+          fi
+
+          zip_file=$(find ${{ env.OUTPUT_DIR }} -name '${{ github.event.inputs.KERNEL_NAME }}*.zip' -print -quit)
+          echo "ZIP_NAME=$(basename "$zip_file" .zip)" >> $GITHUB_ENV
+          echo "RELEASE_DATE=$(date +'%B %-d, %Y %H:%M')" >> $GITHUB_ENV
 
       - name: Upload files to repository releases page
         uses: softprops/action-gh-release@v1
